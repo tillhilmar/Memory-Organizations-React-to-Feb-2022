@@ -1,0 +1,344 @@
+Python code documentation for the Manuscript "Signifying the Present in Links to the Past: Memory Organizations React to the February 24, 2022 Russian Full-Scale Invasion of Ukraine"
+
+# Preprocessing
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+import pandas as pd
+
+# Load the Excel file and specify the data type for the 'unique_tweet_id' column
+file_path = '/x.xlsx'
+df = pd.read_excel(file_path)
+!python -m spacy download en_core_web_lg
+
+# Import necessary libraries
+import spacy
+from spacy.lang.en.stop_words import STOP_WORDS
+import re
+
+# Load English tokenizer, tagger, parser, NER and word vectors
+nlp = spacy.load("en_core_web_lg")
+
+# Function to preprocess text
+def preprocess_text(text):
+    # Create a spaCy object
+    doc = nlp(text)
+
+    # Lemmatization, lowercasing, removing stop words, urls, and symbols
+    clean_text = " ".join(token.lemma_.lower() for token in doc
+                          if not token.is_stop
+                          and not token.like_url
+                          and not token.is_space
+                          and not token.orth_.isspace())
+
+    # Remove any remaining URLs
+    clean_text = re.sub(r'http\S+|www\S+|https\S+', '', clean_text, flags=re.MULTILINE)
+
+    return clean_text
+
+# Apply the preprocessing function to the 'text' column
+df['clean_text'] = df['text'].apply(preprocess_text)
+df['clean_text'] = df['clean_text'].str.replace('_x000d_', '')
+df['clean_text'] = df['clean_text'].str.replace('_ x000d _', '')
+
+# Save the dataframe to Excel
+df.to_excel('/x.xlsx', index=False)
+
+# Download the Excel file
+from google.colab import files
+files.download('/x.xlsx')
+
+
+# First Model – no finetuning applied
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+import pandas as pd
+
+# Load the Excel file and specify the data type for the 'unique_tweet_id' column
+file_path = '/x.xlsx'
+df = pd.read_excel(file_path)
+
+!python -m spacy download en_core_web_trf
+
+!pip install spacy-transformers
+
+import spacy
+
+# Load SpaCy model for English
+nlp_en = spacy.load('en_core_web_trf')
+
+# Function to perform entity recognition and save results to DataFrame
+def perform_entity_recognition(df, nlp):
+    # Initialize lists to store results
+    dates = []
+    events = []
+    persons = []
+    norps = []  # Nationalities or religious or political groups
+    orgs = []
+    new_ids = []
+
+    # Iterate over each row in the dataframe
+    for index, row in df.iterrows():
+        # Check if the text is missing, and if so, skip this row
+        if pd.isnull(row['clean_text']):
+            dates.append(None)
+            events.append(None)
+            persons.append(None)
+            norps.append(None)
+            orgs.append(None)
+            new_ids.append(row['new_id'])
+            continue
+
+        # Perform entity recognition on the text
+        doc = nlp(row['clean_text'])
+
+        # Extract entities of interest (DATE, EVENT, PERSON, NORP, ORG)
+        extracted_dates = []
+        extracted_events = []
+        extracted_persons = []
+        extracted_norps = []
+        extracted_orgs = []
+
+        for ent in doc.ents:
+            if ent.label_ == 'DATE':
+                extracted_dates.append(ent.text)
+            elif ent.label_ == 'EVENT':
+                extracted_events.append(ent.text)
+            elif ent.label_ == 'PERSON':
+                extracted_persons.append(ent.text)
+            elif ent.label_ == 'NORP':
+                extracted_norps.append(ent.text)
+            elif ent.label_ == 'ORG':
+                extracted_orgs.append(ent.text)
+
+        # Append the extracted entities to the respective lists
+        dates.append(extracted_dates)
+        events.append(extracted_events)
+        persons.append(extracted_persons)
+        norps.append(extracted_norps)
+        orgs.append(extracted_orgs)
+
+        # Append other relevant information
+        new_ids.append(row['new_id'])
+
+    # Create a new dataframe to store the results
+    result_df = pd.DataFrame({
+        'new_id': new_ids,
+        'date': dates,
+        'event': events,
+        'person': persons,
+        'norp': norps,
+        'org': orgs
+    })
+
+    return result_df
+
+# Call the function to perform entity recognition for the English language model
+result_df = perform_entity_recognition(df, nlp_en)
+
+# Save the dataframe to Excel
+result_df.to_excel('/x.xlsx', index=False)
+
+# Download the Excel file
+from google.colab import files
+files.download('/x.xlsx')
+
+
+# Final Model – Including Domain-Specific Fine-Tuning
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+import pandas as pd
+
+# Load the Excel file and specify the data type for the 'unique_tweet_id' column
+file_path = '/x.xlsx'
+df = pd.read_excel(file_path)
+
+!python -m spacy download en_core_web_trf
+
+!pip install spacy-transformers
+
+import spacy
+
+# Load SpaCy model for English
+nlp_en = spacy.load('en_core_web_trf')
+
+import spacy
+from spacy.matcher import Matcher
+
+# Load SpaCy model for English
+nlp_en = spacy.load('en_core_web_trf')
+
+# Initialize the matcher with the shared vocab
+matcher = Matcher(nlp_en.vocab)
+
+# List of events from R transformed into Python format
+refined_NER_events = [
+    "holodomor memorial day", "holodomor", "shoah", "world war 2", "world war ii",
+    "holocaust", "corona pandemic", "winter war", "solidarity day", "volyn massacre",
+    "independence day", "polish army day", "holodomor 1932 - 33", "crimean tatar flag day",
+    "unity day", "international vyshyvanka day", "human rights day", "2nd world war",
+    "second world war", "european holocaust remembrance day", "memory day", "communist era",
+    "european day", "internationalmuseumday", "ukrainian revolution", "soviet genocide",
+    "popular uprising", "national day", "anniversary holodomor", "mass famine",
+    "srebrenica genocide", "international children day", "chernobyl", "day dignity freedom",
+    "international holocaust remembrance day", "november uprising", "national flag day",
+    "national anthem day", "koryukiv tragedy", "war 2014", "january uprising",
+    "brovary dnipro january 14th", "orange revolution revolution dignity",
+    "international volunteer day", "maidan - revolution", "imperial war", "ukrainian revolution",
+    "ukrainian cultural revival 1930", "moscow invasion", "armedforcesday", "babyn yar tragedy",
+    "babyn yar", "babyn yar massacre", "german - soviet war", "revolution dignity", "soviet era",
+    "cold war", "bolshevik offensive", "red revolution", "proskuriv offensive", "june war",
+    "vyshyvanka day", "stalin terror", "eastern war", "remembrance reconciliation day",
+    "winter campaign", "prague spring", "day crimean tatar flag", "norilsk uprising",
+    "ribbentrop - molotov pact", "71st anniversary victory nazism", "maidan", "katyn massacre",
+    "victory day", "velvet revolution", "october coup", "holocaust remembrance day",
+    "constitution day", "great famine 1932", "ukraine day invasion", "pereiaslav agreement",
+    "ww ii", "national liberation struggle", "polish - muscovite war", "warsaw uprising",
+    "stalin war", "feb invasion", "barbarossa german - soviet war", "bucha massacre",
+    "freedom day", "occupation day", "liberation ukraine", "history war 1812",
+    "stalin death day", "euromaidan", "remembrance reconciliation day", "budapest memorandum",
+    "red famine", "1917 revolution", "civil war", "soviet invasion", "warsaw pact",
+    "international workers' day", "great terror", "auschwitz", "brest treaty", "koryukiv tragedy",
+    "chornobyl", "katyn", "katyń", "wolyn", "volhynia", "volyn", "world war 1", "world war i",
+    "ww1", "first world war", "1st world war", "ww i"
+]
+
+# Function to convert events into spaCy patterns
+def create_pattern(event):
+    return [{'LOWER': token} for token in event.split()]
+
+# Create patterns for each event in the list
+event_patterns = [create_pattern(event) for event in refined_NER_events]
+
+# Add the new event patterns to the matcher
+matcher.add('EVENT', patterns=event_patterns)
+
+# New list of adjectives representing ethnicities and nationalities
+refined_NER_adjectives = [
+    "jewish", "ukrainian", "russian", "nazi", "roma", "hungarian", "german",
+    "israeli", "non-white", "belarusian", "soviet", "eastern european", "polish",
+    "stalinist", "latvian", "american", "british", "lithuanian", "bolshevik",
+    "moldovan", "malaysian", "french", "austrian", "czech", "norwegian", "kazakh",
+    "moldavian", "sinti", "chilean", "venezuelan", "romanian", "brazilian",
+    "portuguese", "kazakhstani", "serbian", "croatian", "spanish", "guatemalan",
+    "macedonian", "swedish", "australian", "japanese", "iranian", "belgian", "korean",
+    "baltic", "bulgarian", "armenian", "indian", "swiss", "finnish", "kurdish",
+    "turkish", "british", "yugoslav", "romani", "syrian", "african", "georgian",
+    "chinese", "irish", "dutch"
+]
+
+# Define the patterns for ethnic adjectives followed by a noun
+ethnic_adjective_patterns = [[{'LOWER': adj}, {'POS': 'NOUN'}] for adj in refined_NER_adjectives]
+
+# Add the new patterns to the matcher
+matcher.add('NORP', patterns=ethnic_adjective_patterns)
+
+# Add patterns for ORG entities
+org_pattern = [{"LOWER": {"IN": ["nkvd", "wehrmacht", "gestapo", "kgb"]}}]
+matcher.add('ORG', patterns=[org_pattern])
+
+# Add patterns for PERSON entities
+person_pattern = [{"LOWER": {"IN": ["survivors", "putin", "hitler", "stalin", "forced labourer", "forced labourers", "forced labor", "forced laborer"]}}]
+matcher.add('PERSON', patterns=[person_pattern])
+
+# Define the set of words that should not be extracted as a person
+not_persons = set(["maidan", "germany", "austria", "estonia", "march", "buchenwald", "donbas", "kamieniec podolski", "babi yar", "ukraine germany", "slava ukraine", "standwithukraine", "ukraine", "belarus", "poland", "holodomor"])
+
+# Function to perform entity recognition and save results to DataFrame
+def perform_entity_recognition(df, nlp):
+    # Initialize lists to store results
+    dates = []
+    events = []
+    persons = []
+    norps = []  # Nationalities or religious or political groups
+    orgs = []
+    new_ids = []
+
+    # Iterate over each row in the dataframe
+    for index, row in df.iterrows():
+        # Check if the text is missing, and if so, skip this row
+        if pd.isnull(row['clean_text']):
+            dates.append(None)
+            events.append(None)
+            persons.append(None)
+            norps.append(None)
+            orgs.append(None)
+            new_ids.append(row['new_id'])
+            continue
+
+        # Perform entity recognition on the text
+        doc = nlp(row['clean_text'])
+
+        # Extract entities of interest (DATE, EVENT, PERSON, NORP, ORG)
+        extracted_dates = []
+        extracted_events = []
+        extracted_persons = []
+        extracted_norps = []
+        extracted_orgs = []
+
+        for ent in doc.ents:
+            if ent.label_ == 'DATE':
+                extracted_dates.append(ent.text)
+            elif ent.label_ == 'EVENT':
+                extracted_events.append(ent.text)
+            elif ent.label_ == 'PERSON':
+                extracted_persons.append(ent.text)
+            elif ent.label_ == 'NORP':
+                extracted_norps.append(ent.text)
+            elif ent.label_ == 'ORG':
+                extracted_orgs.append(ent.text)
+
+# Apply the custom matcher
+        matches = matcher(doc)
+        for match_id, start, end in matches:
+            span = doc[start:end]
+            match_label = nlp.vocab.strings[match_id]
+            if match_label == 'DATE':
+                extracted_dates.append(span.text)
+            elif match_label == 'EVENT':
+                extracted_events.append(span.text)
+            elif match_label == 'NORP':
+                extracted_norps.append(span.text)
+            elif match_label == 'ORG':
+                extracted_orgs.append(span.text)
+            elif match_label == 'PERSON':
+                if span.text.lower() not in not_persons:
+                    extracted_persons.append(span.text)
+
+        # Append the extracted entities to the respective lists
+        dates.append(extracted_dates)
+        events.append(extracted_events)
+        persons.append(extracted_persons)
+        norps.append(extracted_norps)
+        orgs.append(extracted_orgs)
+
+        # Append other relevant information
+        new_ids.append(row['new_id'])
+
+    # Create a new dataframe to store the results
+    result_df = pd.DataFrame({
+        'new_id': new_ids,
+        'date': dates,
+        'event': events,
+        'person': persons,
+        'norp': norps,
+        'org': orgs
+    })
+
+    return result_df
+
+# Call the function to perform entity recognition for the English language model
+result_df = perform_entity_recognition(df, nlp_en)
+
+# Save the dataframe to Excel
+result_df.to_excel('/x.xlsx', index=False)
+
+# Download the Excel file
+from google.colab import files
+files.download('/x.xlsx')
+
